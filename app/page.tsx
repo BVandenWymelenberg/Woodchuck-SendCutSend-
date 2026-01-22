@@ -93,6 +93,13 @@ const materials = [
   },
 ];
 
+// Material options with available thicknesses for the quote form
+const materialOptions: Record<string, string[]> = {
+  "Baltic Birch": ['0.25"', '0.5"', '0.75"', '1"'],
+  "Acrylic": ['1/16"', '1/8"', '1/4"'],
+  "MDF": ['0.25"', '0.5"', '0.75"', '1"'],
+};
+
 const featureBullets = [
   {
     title: "100% Made in USA",
@@ -215,6 +222,13 @@ function TopNav() {
 }
 
 function Hero() {
+  const [selectedMaterial, setSelectedMaterial] = useState<string>("");
+  const [selectedThickness, setSelectedThickness] = useState<string>("");
+
+  const availableThicknesses = selectedMaterial
+    ? materialOptions[selectedMaterial] || []
+    : [];
+
   return (
     <section className="relative">
       <GradientBackdrop />
@@ -316,28 +330,59 @@ function Hero() {
                     <div className="text-xs font-medium text-muted-foreground">
                       Material
                     </div>
-                    <Select defaultValue="acrylic">
+                    <Select
+                      value={selectedMaterial}
+                      onValueChange={(value) => {
+                        setSelectedMaterial(value);
+                        setSelectedThickness("");
+                      }}
+                    >
                       <SelectTrigger className="rounded-2xl">
                         <SelectValue placeholder="Select material" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="acrylic">Acrylic</SelectItem>
-                        <SelectItem value="plastics">Plastics</SelectItem>
-                        <SelectItem value="wood">
-                          Wood / MDF / Plywood
-                        </SelectItem>
-                        <SelectItem value="composites">Composites</SelectItem>
-                        <SelectItem value="veneer">Veneer</SelectItem>
-                        <SelectItem value="not_sure">Not sure</SelectItem>
+                        {Object.keys(materialOptions).map((material) => (
+                          <SelectItem key={material} value={material}>
+                            {material}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>
                   <div className="space-y-2">
                     <div className="text-xs font-medium text-muted-foreground">
-                      Quantity
+                      Thickness
                     </div>
-                    <Input className="rounded-2xl" placeholder="e.g., 25" />
+                    <Select
+                      value={selectedThickness}
+                      onValueChange={setSelectedThickness}
+                      disabled={!selectedMaterial}
+                    >
+                      <SelectTrigger className="rounded-2xl">
+                        <SelectValue
+                          placeholder={
+                            selectedMaterial
+                              ? "Select thickness"
+                              : "Select material first"
+                          }
+                        />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {availableThicknesses.map((thickness) => (
+                          <SelectItem key={thickness} value={thickness}>
+                            {thickness}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="text-xs font-medium text-muted-foreground">
+                    Quantity
+                  </div>
+                  <Input className="rounded-2xl" placeholder="e.g., 25" />
                 </div>
 
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
