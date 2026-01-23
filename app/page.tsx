@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useRef, useCallback } from "react";
 import { motion } from "framer-motion";
 import {
   Upload,
@@ -40,6 +40,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
+import { parseFile, type ParseResult } from "@/lib/file-parser";
 
 const container = {
   hidden: { opacity: 0 },
@@ -180,14 +181,10 @@ function TopNav() {
   ];
 
   return (
-    <div className="sticky top-0 z-50 border-b border-red-600 shadow-lg overflow-hidden">
-      {/* American Flag Backdrop */}
-      <div className="absolute inset-0 bg-[url('https://upload.wikimedia.org/wikipedia/en/a/a4/Flag_of_the_United_States.svg')] bg-cover bg-center opacity-20"></div>
-      <div className="absolute inset-0 bg-gradient-to-r from-white/80 via-white/70 to-white/80 backdrop-blur-sm"></div>
-
-      <div className="relative mx-auto flex max-w-6xl items-center justify-between px-4 py-2">
+    <div className="sticky top-0 z-50 border-b bg-background/80 backdrop-blur">
+      <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
         <a href="#" className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-2xl border shadow-sm bg-white">
+          <div className="flex h-9 w-9 items-center justify-center rounded-2xl border shadow-sm">
             <Leaf className="h-5 w-5" />
           </div>
           <div className="leading-tight">
@@ -198,52 +195,20 @@ function TopNav() {
           </div>
         </a>
 
-        <div className="hidden items-center gap-6 lg:flex">
+        <div className="hidden items-center gap-6 md:flex">
           {links.map((l) => (
             <a
               key={l.href}
               href={l.href}
-              className="text-sm font-medium text-gray-700 hover:text-foreground"
+              className="text-sm text-muted-foreground hover:text-foreground"
             >
               {l.label}
             </a>
           ))}
         </div>
 
-        {/* USA Representative Call Button - Large Profile */}
-        <a
-          href="tel:605-941-3892"
-          className="group relative flex items-center gap-4 rounded-2xl border-4 border-red-600 bg-gradient-to-r from-blue-800 via-red-600 to-blue-800 p-1 shadow-xl transition-all hover:scale-105 hover:shadow-2xl"
-        >
-          <div className="relative flex items-center gap-4 rounded-xl bg-white/95 px-4 py-1 backdrop-blur-sm">
-            {/* Large Profile Picture */}
-            <div className="relative">
-              <img
-                src="https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=200&h=200&fit=crop&crop=face"
-                alt="USA Representative"
-                className="h-16 w-16 rounded-full border-4 border-red-600 object-cover shadow-lg sm:h-20 sm:w-20"
-              />
-              <span className="absolute -bottom-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-green-500 ring-2 ring-white sm:h-6 sm:w-6">
-                <span className="animate-ping absolute h-full w-full rounded-full bg-green-400 opacity-75"></span>
-              </span>
-            </div>
-            <div className="flex flex-col">
-              <span className="text-sm font-bold uppercase tracking-wide text-red-600 sm:text-base">
-                🇺🇸 Talk NOW to a Real
-              </span>
-              <span className="text-base font-extrabold text-blue-800 sm:text-lg">
-                USA Representative!
-              </span>
-              <span className="flex items-center gap-1 text-sm font-bold text-green-700 sm:text-base">
-                <Phone className="h-4 w-4 animate-pulse sm:h-5 sm:w-5" />
-                (605) 941-3892
-              </span>
-            </div>
-          </div>
-        </a>
-
-        <div className="hidden items-center gap-2 md:flex">
-          <Button variant="outline" className="bg-white/80" asChild>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" className="hidden sm:inline-flex" asChild>
             <a href="#quote">Instant Quote</a>
           </Button>
           <Button className="rounded-2xl" asChild>
@@ -260,10 +225,82 @@ function TopNav() {
 function Hero() {
   const [selectedMaterial, setSelectedMaterial] = useState<string>("");
   const [selectedThickness, setSelectedThickness] = useState<string>("");
+  const [uploadedFile, setUploadedFile] = useState<File | null>(null);
+  const [parseResults, setParseResults] = useState<ParseResult | null>(null);
+  const [parseError, setParseError] = useState<string | null>(null);
+  const [isParsing, setIsParsing] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const availableThicknesses = selectedMaterial
     ? materialOptions[selectedMaterial] || []
     : [];
+
+  const handleFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploadedFile(file);
+    setParseError(null);
+    setParseResults(null);
+    setIsParsing(true);
+
+    try {
+      const results = await parseFile(file);
+      setParseResults(results);
+    } catch (err) {
+      setParseError(err instanceof Error ? err.message : "Failed to parse file");
+    } finally {
+      setIsParsing(false);
+    }
+  }, []);
+
+  const handleDrop = useCallback(async (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const file = e.dataTransfer.files?.[0];
+    if (!file) return;
+
+    const extension = file.name.split(".").pop()?.toLowerCase();
+    if (extension !== "svg" && extension !== "dxf") {
+      setParseError("Please upload SVG or DXF files only.");
+      return;
+    }
+
+    setUploadedFile(file);
+    setParseError(null);
+    setParseResults(null);
+    setIsParsing(true);
+
+    try {
+      const results = await parseFile(file);
+      setParseResults(results);
+    } catch (err) {
+      setParseError(err instanceof Error ? err.message : "Failed to parse file");
+    } finally {
+      setIsParsing(false);
+    }
+  }, []);
+
+  const handleDragOver = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+  }, []);
+
+  const clearFile = useCallback(() => {
+    setUploadedFile(null);
+    setParseResults(null);
+    setParseError(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  }, []);
+
+  // Cost calculation (example rates - adjust as needed)
+  const COST_PER_INCH_CUT = 0.15; // per inch of cut length
+  const COST_PER_SQ_INCH_MATERIAL = 0.05; // per square inch of material
+
+  const estimatedCost = parseResults
+    ? (parseResults.pathLengthInches * COST_PER_INCH_CUT) +
+      (parseResults.areaSquareInches * COST_PER_SQ_INCH_MATERIAL)
+    : null;
 
   return (
     <section className="relative">
@@ -286,7 +323,7 @@ function Hero() {
           </div>
 
           <h1 className="mt-5 text-4xl font-semibold tracking-tight sm:text-5xl">
-            Upload your files. We cut it. We assemble it.
+            Upload your files. We cut it. We assemble it. We Ship it.
           </h1>
           <p className="mt-4 text-base text-muted-foreground sm:text-lg">
             Send your DXF / SVG / AI / PDF (or tell us what you need) and
@@ -340,25 +377,98 @@ function Hero() {
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
-                <div className="rounded-2xl border border-dashed p-5">
-                  <div className="flex items-start gap-3">
-                    <div className="mt-0.5 flex h-10 w-10 items-center justify-center rounded-2xl border">
-                      <Upload className="h-5 w-5" />
-                    </div>
-                    <div>
-                      <div className="text-sm font-medium">Drop files here</div>
-                      <div className="mt-1 text-xs text-muted-foreground">
-                        DXF, SVG, AI, PDF, STEP (optional). Max size and
-                        validations handled server-side.
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  onChange={handleFileChange}
+                  accept=".svg,.dxf"
+                  className="hidden"
+                />
+                <div
+                  className="rounded-2xl border border-dashed p-5 cursor-pointer hover:border-primary/50 transition-colors"
+                  onClick={() => fileInputRef.current?.click()}
+                  onDrop={handleDrop}
+                  onDragOver={handleDragOver}
+                >
+                  {!uploadedFile ? (
+                    <div className="flex items-start gap-3">
+                      <div className="mt-0.5 flex h-10 w-10 items-center justify-center rounded-2xl border">
+                        <Upload className="h-5 w-5" />
                       </div>
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        <Pill>Laser Cutting</Pill>
-                        <Pill>CNC Routing</Pill>
-                        <Pill>Finishing</Pill>
-                        <Pill>Assembly</Pill>
+                      <div>
+                        <div className="text-sm font-medium">Drop files here or click to upload</div>
+                        <div className="mt-1 text-xs text-muted-foreground">
+                          SVG, DXF files supported. We&apos;ll calculate cut length and material area instantly.
+                        </div>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <Pill>Laser Cutting</Pill>
+                          <Pill>CNC Routing</Pill>
+                          <Pill>Finishing</Pill>
+                          <Pill>Assembly</Pill>
+                        </div>
                       </div>
                     </div>
-                  </div>
+                  ) : (
+                    <div className="flex items-start gap-3">
+                      <div className="mt-0.5 flex h-10 w-10 items-center justify-center rounded-2xl border bg-primary/10">
+                        <CheckCircle2 className="h-5 w-5 text-primary" />
+                      </div>
+                      <div className="flex-1">
+                        <div className="flex items-center justify-between">
+                          <div className="text-sm font-medium">{uploadedFile.name}</div>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              clearFile();
+                            }}
+                            className="text-xs text-muted-foreground hover:text-foreground"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                        {isParsing && (
+                          <div className="mt-2 text-xs text-muted-foreground">
+                            Analyzing file...
+                          </div>
+                        )}
+                        {parseError && (
+                          <div className="mt-2 text-xs text-red-500">
+                            {parseError}
+                          </div>
+                        )}
+                        {parseResults && (
+                          <div className="mt-3 grid grid-cols-2 gap-3">
+                            <div className="rounded-xl border bg-background/60 p-3">
+                              <div className="text-xs text-muted-foreground">Cut Length</div>
+                              <div className="text-lg font-semibold">
+                                {parseResults.pathLengthInches.toFixed(2)}&quot;
+                              </div>
+                            </div>
+                            <div className="rounded-xl border bg-background/60 p-3">
+                              <div className="text-xs text-muted-foreground">Material Area</div>
+                              <div className="text-lg font-semibold">
+                                {parseResults.areaSquareInches.toFixed(2)} sq&quot;
+                              </div>
+                            </div>
+                            <div className="rounded-xl border bg-background/60 p-3">
+                              <div className="text-xs text-muted-foreground">Bounding Box</div>
+                              <div className="text-sm font-medium">
+                                {parseResults.boundingBox.width.toFixed(2)}&quot; × {parseResults.boundingBox.height.toFixed(2)}&quot;
+                              </div>
+                            </div>
+                            {estimatedCost !== null && (
+                              <div className="rounded-xl border bg-primary/10 p-3">
+                                <div className="text-xs text-muted-foreground">Est. Base Cost</div>
+                                <div className="text-lg font-semibold text-primary">
+                                  ${estimatedCost.toFixed(2)}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
