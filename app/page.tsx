@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useMemo, useState, useRef, useCallback } from "react";
+import Image from "next/image";
 import { motion } from "framer-motion";
 import {
   Upload,
@@ -177,7 +178,6 @@ function TopNav() {
     { label: "How it Works", href: "#how" },
     { label: "Capabilities", href: "#capabilities" },
     { label: "FAQs", href: "#faqs" },
-    { label: "Get a Quote", href: "#quote" },
   ];
 
   return (
@@ -212,8 +212,8 @@ function TopNav() {
             <a href="#quote">Instant Quote</a>
           </Button>
           <Button className="rounded-2xl" asChild>
-            <a href="#quote">
-              Upload Files <ArrowRight className="ml-2 h-4 w-4" />
+            <a href="#">
+              <Zap className="mr-2 h-4 w-4 fill-current" /> Click. Cut. Ship.
             </a>
           </Button>
         </div>
@@ -225,15 +225,106 @@ function TopNav() {
 function Hero() {
   const [selectedMaterial, setSelectedMaterial] = useState<string>("");
   const [selectedThickness, setSelectedThickness] = useState<string>("");
+  const [quantity, setQuantity] = useState<string>("");
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [parseResults, setParseResults] = useState<ParseResult | null>(null);
   const [parseError, setParseError] = useState<string | null>(null);
   const [isParsing, setIsParsing] = useState(false);
+  const [filePreview, setFilePreview] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const availableThicknesses = selectedMaterial
     ? materialOptions[selectedMaterial] || []
     : [];
+
+  const createSvgPreview = useCallback(async (file: File): Promise<string | null> => {
+    try {
+      const content = await file.text();
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(content, "image/svg+xml");
+      const svg = doc.querySelector("svg");
+      if (!svg) return null;
+
+      // Get all visual elements and calculate bounding box
+      const elements = svg.querySelectorAll("path, line, circle, ellipse, rect, polyline, polygon");
+
+      // Clone SVG for preview
+      const previewSvg = svg.cloneNode(true) as SVGSVGElement;
+
+      // Bold all strokes and ensure visibility
+      const allElements = previewSvg.querySelectorAll("*");
+      allElements.forEach((el) => {
+        if (el instanceof SVGElement) {
+          const currentStroke = el.getAttribute("stroke") || window.getComputedStyle(el).stroke;
+          const currentFill = el.getAttribute("fill");
+
+          // Set stroke to be visible
+          if (currentStroke === "none" || !currentStroke || currentStroke === "") {
+            if (currentFill === "none" || !currentFill) {
+              el.setAttribute("stroke", "#000000");
+            }
+          }
+
+          // Bold the stroke
+          el.setAttribute("stroke-width", "2");
+
+          // If no fill and no stroke, add stroke
+          if ((!currentFill || currentFill === "none") && (!currentStroke || currentStroke === "none")) {
+            el.setAttribute("stroke", "#000000");
+          }
+        }
+      });
+
+      // Try to get the bounding box by temporarily adding to DOM
+      const tempDiv = document.createElement("div");
+      tempDiv.style.position = "absolute";
+      tempDiv.style.visibility = "hidden";
+      tempDiv.style.width = "1000px";
+      tempDiv.style.height = "1000px";
+      document.body.appendChild(tempDiv);
+      tempDiv.appendChild(previewSvg);
+
+      // Get bbox of all content
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      elements.forEach((_, i) => {
+        const previewEl = previewSvg.querySelectorAll("path, line, circle, ellipse, rect, polyline, polygon")[i];
+        if (previewEl instanceof SVGGraphicsElement) {
+          try {
+            const bbox = previewEl.getBBox();
+            minX = Math.min(minX, bbox.x);
+            minY = Math.min(minY, bbox.y);
+            maxX = Math.max(maxX, bbox.x + bbox.width);
+            maxY = Math.max(maxY, bbox.y + bbox.height);
+          } catch {
+            // Skip elements that can't get bbox
+          }
+        }
+      });
+
+      document.body.removeChild(tempDiv);
+
+      // Set viewBox to zoom to content with padding
+      if (minX !== Infinity) {
+        const padding = Math.max((maxX - minX), (maxY - minY)) * 0.1;
+        const viewBox = `${minX - padding} ${minY - padding} ${maxX - minX + padding * 2} ${maxY - minY + padding * 2}`;
+        previewSvg.setAttribute("viewBox", viewBox);
+      }
+
+      previewSvg.setAttribute("width", "100%");
+      previewSvg.setAttribute("height", "100%");
+      previewSvg.style.maxWidth = "100%";
+      previewSvg.style.maxHeight = "100%";
+
+      // Convert to data URL
+      const serializer = new XMLSerializer();
+      const svgString = serializer.serializeToString(previewSvg);
+      const dataUrl = "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(svgString)));
+
+      return dataUrl;
+    } catch {
+      return null;
+    }
+  }, []);
 
   const handleFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -243,6 +334,14 @@ function Hero() {
     setParseError(null);
     setParseResults(null);
     setIsParsing(true);
+    setFilePreview(null);
+
+    // Create preview URL for SVG files
+    const extension = file.name.split(".").pop()?.toLowerCase();
+    if (extension === "svg") {
+      const preview = await createSvgPreview(file);
+      setFilePreview(preview);
+    }
 
     try {
       const results = await parseFile(file);
@@ -252,7 +351,7 @@ function Hero() {
     } finally {
       setIsParsing(false);
     }
-  }, []);
+  }, [createSvgPreview]);
 
   const handleDrop = useCallback(async (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -269,6 +368,13 @@ function Hero() {
     setParseError(null);
     setParseResults(null);
     setIsParsing(true);
+    setFilePreview(null);
+
+    // Create preview URL for SVG files
+    if (extension === "svg") {
+      const preview = await createSvgPreview(file);
+      setFilePreview(preview);
+    }
 
     try {
       const results = await parseFile(file);
@@ -278,7 +384,7 @@ function Hero() {
     } finally {
       setIsParsing(false);
     }
-  }, []);
+  }, [createSvgPreview]);
 
   const handleDragOver = useCallback((e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -288,6 +394,7 @@ function Hero() {
     setUploadedFile(null);
     setParseResults(null);
     setParseError(null);
+    setFilePreview(null);
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
@@ -297,7 +404,12 @@ function Hero() {
   const COST_PER_INCH_CUT = 0.15; // per inch of cut length
   const COST_PER_SQ_INCH_MATERIAL = 0.05; // per square inch of material
 
-  const estimatedCost = parseResults
+  // Check if all required fields are filled
+  const allFieldsFilled = selectedMaterial && selectedThickness && quantity && parseResults;
+  const parsedQuantity = parseInt(quantity) || 0;
+
+  // Calculate per unit price only when all fields are filled
+  const perUnitPrice = allFieldsFilled && parseResults
     ? (parseResults.pathLengthInches * COST_PER_INCH_CUT) +
       (parseResults.areaSquareInches * COST_PER_SQ_INCH_MATERIAL)
     : null;
@@ -366,13 +478,12 @@ function Hero() {
         >
           <Card className="w-full rounded-3xl shadow-sm">
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Upload className="h-5 w-5" />
-                Fast Quote Intake
+              <CardTitle className="flex items-center gap-3">
+                <Zap className="h-10 w-10 fill-primary text-primary" />
+                Click. Cut. Ship.
               </CardTitle>
               <div className="text-sm text-muted-foreground">
-                This is a front-end placeholder—wire to your quoting + file
-                pipeline.
+                Upload your file, purchase, and we ship. Yes, it&apos;s that easy.
               </div>
             </CardHeader>
             <CardContent>
@@ -437,33 +548,30 @@ function Hero() {
                           </div>
                         )}
                         {parseResults && (
-                          <div className="mt-3 grid grid-cols-2 gap-3">
-                            <div className="rounded-xl border bg-background/60 p-3">
-                              <div className="text-xs text-muted-foreground">Cut Length</div>
-                              <div className="text-lg font-semibold">
-                                {parseResults.pathLengthInches.toFixed(2)}&quot;
-                              </div>
-                            </div>
-                            <div className="rounded-xl border bg-background/60 p-3">
-                              <div className="text-xs text-muted-foreground">Material Area</div>
-                              <div className="text-lg font-semibold">
-                                {parseResults.areaSquareInches.toFixed(2)} sq&quot;
-                              </div>
-                            </div>
-                            <div className="rounded-xl border bg-background/60 p-3">
-                              <div className="text-xs text-muted-foreground">Bounding Box</div>
-                              <div className="text-sm font-medium">
-                                {parseResults.boundingBox.width.toFixed(2)}&quot; × {parseResults.boundingBox.height.toFixed(2)}&quot;
-                              </div>
-                            </div>
-                            {estimatedCost !== null && (
-                              <div className="rounded-xl border bg-primary/10 p-3">
-                                <div className="text-xs text-muted-foreground">Est. Base Cost</div>
-                                <div className="text-lg font-semibold text-primary">
-                                  ${estimatedCost.toFixed(2)}
-                                </div>
+                          <div className="mt-3 space-y-3">
+                            {filePreview && (
+                              <div className="flex justify-center rounded-xl border bg-white p-2">
+                                <img
+                                  src={filePreview}
+                                  alt="File preview"
+                                  className="h-16 w-auto object-contain"
+                                />
                               </div>
                             )}
+                            <div className="grid grid-cols-2 gap-3">
+                              <div className="rounded-xl border bg-background/60 p-3">
+                                <div className="text-xs text-muted-foreground">Cut Length</div>
+                                <div className="text-lg font-semibold">
+                                  {parseResults.pathLengthInches.toFixed(2)}&quot;
+                                </div>
+                              </div>
+                              <div className="rounded-xl border bg-background/60 p-3">
+                                <div className="text-xs text-muted-foreground">Material Area</div>
+                                <div className="text-lg font-semibold">
+                                  {parseResults.areaSquareInches.toFixed(2)} sq&quot;
+                                </div>
+                              </div>
+                            </div>
                           </div>
                         )}
                       </div>
@@ -524,64 +632,71 @@ function Hero() {
                   </div>
                 </div>
 
-                <div className="space-y-2">
-                  <div className="text-xs font-medium text-muted-foreground">
-                    Quantity
-                  </div>
-                  <Input className="rounded-2xl" placeholder="e.g., 25" />
-                </div>
-
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div className="space-y-2">
                     <div className="text-xs font-medium text-muted-foreground">
-                      Turn Time
+                      Quantity
                     </div>
-                    <Select defaultValue="standard">
-                      <SelectTrigger className="rounded-2xl">
-                        <SelectValue placeholder="Select turn time" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="standard">
-                          Standard (2–5 business days)
-                        </SelectItem>
-                        <SelectItem value="rush">
-                          Rush (when available)
-                        </SelectItem>
-                        <SelectItem value="scheduled">
-                          Scheduled / recurring
-                        </SelectItem>
-                      </SelectContent>
-                    </Select>
+                    <Input
+                      className="rounded-2xl"
+                      placeholder="e.g., 25"
+                      value={quantity}
+                      onChange={(e) => setQuantity(e.target.value)}
+                      type="number"
+                      min="1"
+                    />
+                    <div className="text-xs text-muted-foreground">
+                      Discounts applied to larger volumes
+                    </div>
                   </div>
                   <div className="space-y-2">
                     <div className="text-xs font-medium text-muted-foreground">
-                      Need assembly?
+                      Per Unit Price
                     </div>
-                    <Select defaultValue="no">
-                      <SelectTrigger className="rounded-2xl">
-                        <SelectValue placeholder="Assembly" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="no">No</SelectItem>
-                        <SelectItem value="light">
-                          Yes — light assembly / kitting
-                        </SelectItem>
-                        <SelectItem value="complex">
-                          Yes — complex / multi-step
-                        </SelectItem>
-                      </SelectContent>
-                    </Select>
+                    <div className="rounded-2xl border bg-muted/30 px-4 py-2 h-10 flex items-center">
+                      {perUnitPrice !== null ? (
+                        <div className="text-lg font-semibold text-primary">
+                          ${perUnitPrice.toFixed(2)}
+                        </div>
+                      ) : (
+                        <div className="text-xs text-muted-foreground">
+                          *Fills when all fields selected
+                        </div>
+                      )}
+                    </div>
                   </div>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="text-xs font-medium text-muted-foreground">
+                    Turn Time
+                  </div>
+                  <Select defaultValue="standard">
+                    <SelectTrigger className="rounded-2xl">
+                      <SelectValue placeholder="Select turn time" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="standard">
+                        Standard (2–5 business days)
+                      </SelectItem>
+                      <SelectItem value="rush">
+                        Rush (when available)
+                      </SelectItem>
+                      <SelectItem value="scheduled">
+                        Scheduled / recurring
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
 
                 <Button
                   className="w-full rounded-2xl"
                   size="lg"
                   onClick={() =>
-                    alert("Connect this button to your quote workflow.")
+                    alert("Connect this button to your purchase workflow.")
                   }
                 >
-                  Generate Quote
+                  Purchase Parts
                 </Button>
 
                 <div className="flex items-start gap-2 rounded-2xl border p-3 text-xs text-muted-foreground">
@@ -910,6 +1025,190 @@ function FAQs() {
   );
 }
 
+function AboutSection() {
+  return (
+    <section id="about" className="border-t">
+      {/* Hero Banner */}
+      <div className="bg-gradient-to-br from-primary/10 via-primary/5 to-background">
+        <div className="mx-auto max-w-6xl px-4 py-16 md:py-24">
+          <div className="grid grid-cols-1 gap-10 lg:grid-cols-2 lg:items-center">
+            {/* Left: Text Content */}
+            <div>
+              <div className="flex items-center gap-3">
+                <Image
+                  src="/family-owned-logo.png"
+                  alt="Family Owned Business"
+                  width={60}
+                  height={60}
+                  className="h-14 w-auto"
+                />
+                <Badge variant="outline" className="rounded-full text-xs">
+                  Est. 2012
+                </Badge>
+              </div>
+              <h2 className="mt-6 text-3xl font-bold tracking-tight sm:text-4xl lg:text-5xl">
+                Family Owned.<br />
+                <span className="text-primary">American Made.</span><br />
+                Nature Focused.
+              </h2>
+              <p className="mt-6 text-lg text-muted-foreground">
+                Founded with a mission to put nature back into people&apos;s lives, bring jobs back to America, and bring quality back to products.
+              </p>
+              <div className="mt-8 flex flex-wrap gap-3">
+                <Badge className="rounded-full px-4 py-2">
+                  <Leaf className="mr-2 h-4 w-4" /> Buy One. Plant One.
+                </Badge>
+                <Badge variant="secondary" className="rounded-full px-4 py-2">
+                  <ShieldCheck className="mr-2 h-4 w-4" /> 100% USA Made
+                </Badge>
+              </div>
+            </div>
+
+            {/* Right: Family Image */}
+            <div className="relative">
+              <div className="aspect-[4/3] overflow-hidden rounded-3xl shadow-2xl">
+                <Image
+                  src="/ben-and-family.webp"
+                  alt="Ben & Zoie VandenWymelenberg - Founders, WOODCHUCK USA"
+                  width={600}
+                  height={450}
+                  className="h-full w-full object-cover object-top"
+                />
+              </div>
+              {/* Decorative element */}
+              <div className="absolute -bottom-4 -right-4 -z-10 h-full w-full rounded-3xl bg-primary/10" />
+              {/* Caption */}
+              <div className="absolute bottom-4 left-4 right-4 rounded-2xl bg-background/90 backdrop-blur p-3 shadow-lg">
+                <p className="text-sm font-medium">Ben &amp; Zoie VandenWymelenberg</p>
+                <p className="text-xs text-muted-foreground">Founders, WOODCHUCK USA</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Stats Row */}
+      <div className="border-y bg-background">
+        <div className="mx-auto max-w-6xl px-4 py-10">
+          <div className="grid grid-cols-2 gap-6 md:grid-cols-4">
+            <div className="text-center">
+              <div className="text-3xl font-bold text-primary md:text-4xl">4M+</div>
+              <div className="mt-1 text-sm text-muted-foreground">Trees Planted</div>
+            </div>
+            <div className="text-center">
+              <div className="text-3xl font-bold md:text-4xl">6</div>
+              <div className="mt-1 text-sm text-muted-foreground">Continents Reached</div>
+            </div>
+            <div className="text-center">
+              <div className="text-3xl font-bold md:text-4xl">2012</div>
+              <div className="mt-1 text-sm text-muted-foreground">Year Founded</div>
+            </div>
+            <div className="text-center">
+              <div className="text-3xl font-bold md:text-4xl">100%</div>
+              <div className="mt-1 text-sm text-muted-foreground">Made in USA</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Story Content */}
+      <div className="mx-auto max-w-6xl px-4 py-14">
+        <div className="grid grid-cols-1 gap-12 lg:grid-cols-3">
+          {/* Origin Story */}
+          <div className="lg:col-span-2">
+            <h3 className="text-2xl font-semibold">Our Story</h3>
+            <div className="mt-6 space-y-4 text-muted-foreground">
+              <p>
+                It all started with a cracked iPhone. After wiping out on Rollerblades, Ben VandenWymelenberg—then an architecture student at the University of Minnesota—decided to craft a phone case from wood scraps. Friends wanted one too, and WOODCHUCK USA was born.
+              </p>
+              <p>
+                What began as handcrafted wood phone skins quickly grew into a nationwide brand, landing in 1,800 Target stores within six months. Today, some of the world&apos;s most iconic brands choose WOODCHUCK USA, including Chanel, Nike, Jack Daniel&apos;s, Land Rover, and Patrón Tequila.
+              </p>
+              <p>
+                Together with his wife Zoie and a passionate team, Ben continues to expand WOODCHUCK USA&apos;s impact across custom cutting, packaging, corporate gifting, and more. The company has been bootstrapped from day one, driven by a passion for sustainability and a desire to give back.
+              </p>
+            </div>
+
+            {/* Quote */}
+            <blockquote className="mt-8 border-l-4 border-primary pl-6">
+              <p className="text-lg italic">
+                &quot;I founded WOODCHUCK USA with a mission to connect people with nature through beautifully designed, sustainable products. Our goal is to leave the planet better than we found it.&quot;
+              </p>
+              <footer className="mt-3 text-sm text-muted-foreground">
+                — Ben VandenWymelenberg, Founder &amp; CEO
+              </footer>
+            </blockquote>
+          </div>
+
+          {/* Side Cards */}
+          <div className="space-y-4">
+            <Card className="rounded-3xl shadow-sm">
+              <CardContent className="p-5">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
+                    <Leaf className="h-5 w-5 text-primary" />
+                  </div>
+                  <div className="font-semibold">Buy One. Plant One.®</div>
+                </div>
+                <p className="mt-3 text-sm text-muted-foreground">
+                  Every product triggers tree planting through our program. Over 4 million trees planted across six continents.
+                </p>
+              </CardContent>
+            </Card>
+
+            <Card className="rounded-3xl shadow-sm">
+              <CardContent className="p-5">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
+                    <Package className="h-5 w-5 text-primary" />
+                  </div>
+                  <div className="font-semibold">Community Impact</div>
+                </div>
+                <p className="mt-3 text-sm text-muted-foreground">
+                  We partner with Dodge Nature Center to get inner-city kids outdoors and offer employees adventure gear to explore nature.
+                </p>
+              </CardContent>
+            </Card>
+
+            <Card className="rounded-3xl shadow-sm">
+              <CardContent className="p-5">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
+                    <Sparkles className="h-5 w-5 text-primary" />
+                  </div>
+                  <div className="font-semibold">Nature Link Resorts</div>
+                </div>
+                <p className="mt-3 text-sm text-muted-foreground">
+                  Ben and Zoie co-founded Nature Link Resorts, creating unique cabin experiences to help people reconnect with nature.
+                </p>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+
+        {/* Brand Footer */}
+        <div className="mt-14 flex flex-col items-center justify-center gap-6 border-t pt-10 sm:flex-row sm:gap-10">
+          <Image
+            src="/woodchuck-logo.png"
+            alt="Woodchuck USA - Made in USA"
+            width={160}
+            height={56}
+            className="h-12 w-auto"
+          />
+          <div className="h-8 w-px bg-border hidden sm:block" />
+          <Image
+            src="/family-owned-logo.png"
+            alt="Family Owned Business"
+            width={60}
+            height={60}
+            className="h-12 w-auto"
+          />
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function QuoteSection() {
   const [form, setForm] = useState({
     name: "",
@@ -1019,7 +1318,7 @@ function QuoteSection() {
                   </div>
                   <div className="flex items-start gap-2">
                     <Phone className="mt-0.5 h-4 w-4" />
-                    <span>(###) ###-####</span>
+                    <span>612.840.3360</span>
                   </div>
                   <div className="flex items-start gap-2">
                     <MapPin className="mt-0.5 h-4 w-4" />
@@ -1065,15 +1364,19 @@ function Footer() {
       <div className="mx-auto max-w-6xl px-4 py-10">
         <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
           <div>
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-2xl border shadow-sm">
-                <Leaf className="h-5 w-5" />
+            <Image
+              src="/woodchuck-logo.png"
+              alt="Woodchuck USA - Made in USA"
+              width={140}
+              height={50}
+              className="h-10 w-auto"
+            />
+            <div className="mt-3 flex items-center gap-2">
+              <div className="flex h-8 w-8 items-center justify-center rounded-2xl border shadow-sm">
+                <Leaf className="h-4 w-4" />
               </div>
-              <div>
-                <div className="text-sm font-semibold">WOODCHUCK USA</div>
-                <div className="text-xs text-muted-foreground">
-                  Custom Cutting + Assembly
-                </div>
+              <div className="text-xs text-muted-foreground">
+                Custom Cutting + Assembly
               </div>
             </div>
             <p className="mt-3 text-sm text-muted-foreground">
@@ -1102,9 +1405,18 @@ function Footer() {
           </div>
         </div>
 
-        <div className="mt-8 flex flex-col gap-2 border-t pt-6 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            © {new Date().getFullYear()} WOODCHUCK USA. All rights reserved.
+        <div className="mt-8 flex flex-col gap-4 border-t pt-6 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-4">
+            <Image
+              src="/family-owned-logo.png"
+              alt="Family Owned Business"
+              width={60}
+              height={60}
+              className="h-12 w-auto"
+            />
+            <div>
+              © {new Date().getFullYear()} WOODCHUCK USA. All rights reserved.
+            </div>
           </div>
           <div className="flex items-center gap-2">
             <span className="inline-flex items-center gap-1">
@@ -1131,6 +1443,7 @@ export default function Home() {
         <HowItWorks />
         <Capabilities />
         <FAQs />
+        <AboutSection />
         <QuoteSection />
       </main>
       <Footer />
